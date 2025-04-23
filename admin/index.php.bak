@@ -1,0 +1,635 @@
+<?php
+// Start session for login management
+session_start();
+
+// Admin credentials
+$adminEmail = "anime@admin.com";
+$adminPassword = "@PriyanshuAnimeGame";
+
+// Check if user is logging in
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['login'])) {
+    $email = $_POST['email'] ?? '';
+    $password = $_POST['password'] ?? '';
+    
+    if ($email === $adminEmail && $password === $adminPassword) {
+        $_SESSION['admin_logged_in'] = true;
+        $_SESSION['admin_email'] = $email;
+        // Redirect to clear POST data
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+    } else {
+        $loginError = "Invalid email or password";
+    }
+}
+
+// Check if user is logging out
+if (isset($_GET['logout'])) {
+    unset($_SESSION['admin_logged_in']);
+    unset($_SESSION['admin_email']);
+    session_destroy();
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit();
+}
+
+// If not logged in, show login form
+if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+    // Show login form (will be defined at the end of file)
+} else {
+    // User is logged in, proceed with normal admin panel operations
+    
+    // Database connection settings
+    $servername = "localhost";
+    $username = "root";
+    $password = "";
+    $dbname = "reel_db";
+
+    // Create database connection
+    $conn = new mysqli($servername, $username, $password);
+
+    // Check connection
+    if ($conn->connect_error) {
+        die("Connection failed: " . $conn->connect_error);
+    }
+
+    // Create database if not exists
+    $sql = "CREATE DATABASE IF NOT EXISTS $dbname";
+    if ($conn->query($sql) === FALSE) {
+        die("Error creating database: " . $conn->error);
+    }
+
+    // Switch to the new database
+    $conn->select_db($dbname);
+
+    // Create table if not exists
+    $sql = "CREATE TABLE IF NOT EXISTS videos (
+        id INT(11) AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        category VARCHAR(50) NOT NULL,
+        video_path VARCHAR(255) NOT NULL,
+        thumbnail_path VARCHAR(255),
+        upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )";
+
+    if ($conn->query($sql) === FALSE) {
+        die("Error creating table: " . $conn->error);
+    }
+
+// Process the form submission
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $response = array();
+    
+    // Get form data
+    $title = $conn->real_escape_string($_POST['videoTitle']);
+    $description = $conn->real_escape_string($_POST['videoDescription']);
+    $category = $conn->real_escape_string($_POST['videoCategory']);
+    
+    // Handle video file upload
+    $targetVideoDir = "../assets/videos/";
+    $videoFileName = basename($_FILES["videoFile"]["name"]);
+    $videoFileType = strtolower(pathinfo($videoFileName, PATHINFO_EXTENSION));
+    $uniqueVideoName = uniqid() . '_' . $videoFileName;
+    $targetVideoPath = $targetVideoDir . $uniqueVideoName;
+    $uploadOk = 1;
+    
+    // Allow certain video file formats
+    $allowedVideoFormats = array("mp4", "avi", "mov", "webm", "mkv");
+    if (!in_array($videoFileType, $allowedVideoFormats)) {
+        $response["status"] = "error";
+        $response["message"] = "Sorry, only MP4, AVI, MOV, WEBM & MKV files are allowed for videos.";
+        $uploadOk = 0;
+    }
+    
+    // Check if $uploadOk is set to 0 by an error
+    if ($uploadOk == 0) {
+        echo json_encode($response);
+        exit;
+    }
+    
+    // Process thumbnail
+    $thumbnailPath = "";
+    if(isset($_FILES["thumbnailFile"]) && $_FILES["thumbnailFile"]["error"] == 0) {
+        $targetThumbDir = "../assets/images/";
+        $thumbFileName = basename($_FILES["thumbnailFile"]["name"]);
+        $thumbFileType = strtolower(pathinfo($thumbFileName, PATHINFO_EXTENSION));
+        $uniqueThumbName = uniqid() . '_' . $thumbFileName;
+        $targetThumbPath = $targetThumbDir . $uniqueThumbName;
+        
+        // Allow certain image file formats
+        $allowedImageFormats = array("jpg", "jpeg", "png", "gif");
+        if (in_array($thumbFileType, $allowedImageFormats)) {
+            if (move_uploaded_file($_FILES["thumbnailFile"]["tmp_name"], $targetThumbPath)) {
+                $thumbnailPath = "assets/images/" . $uniqueThumbName;
+            }
+        }
+    }
+    
+    // Generate thumbnail from video if no thumbnail was uploaded
+    if ($thumbnailPath == "") {
+        // Default thumbnails based on category
+        if ($category == "anime") {
+            $thumbnailPath = "assets/images/anime-thumb.jpg";
+        } else {
+            $thumbnailPath = "assets/images/game-thumb.jpg";
+        }
+    }
+    
+    // Upload the video file
+    if (move_uploaded_file($_FILES["videoFile"]["tmp_name"], $targetVideoPath)) {
+        // Insert into database
+        $videoDbPath = "assets/videos/" . $uniqueVideoName;
+        $sql = "INSERT INTO videos (title, description, category, video_path, thumbnail_path) VALUES ('$title', '$description', '$category', '$videoDbPath', '$thumbnailPath')";
+        
+        if ($conn->query($sql) === TRUE) {
+            $response["status"] = "success";
+            $response["message"] = "The video has been uploaded and saved to the database.";
+        } else {
+            $response["status"] = "error";
+            $response["message"] = "Error: " . $sql . "<br>" . $conn->error;
+        }
+    } else {
+        $response["status"] = "error";
+        $response["message"] = "Sorry, there was an error uploading your file.";
+    }
+    
+    echo json_encode($response);
+    exit;
+}
+
+if (isset($conn)) {
+    $conn->close();
+}
+
+// If not logged in, show login form and exit
+if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reel - Admin Login</title>
+        <link rel="stylesheet" href="../css/style.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>
+            .login-container {
+                max-width: 400px;
+                margin: 100px auto;
+                padding: 30px;
+                background-color: rgba(255, 255, 255, 0.9);
+                border-radius: 10px;
+                box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+                color: #333;
+            }
+            
+            .login-title {
+                font-size: 24px;
+                margin-bottom: 20px;
+                text-align: center;
+            }
+            
+            .login-form .form-group {
+                margin-bottom: 20px;
+            }
+            
+            .login-form label {
+                display: block;
+                margin-bottom: 8px;
+                font-weight: bold;
+            }
+            
+            .login-form input {
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                font-size: 16px;
+            }
+            
+            .login-btn {
+                width: 100%;
+                padding: 12px;
+                background: linear-gradient(135deg, #6e8efb, #a777e3);
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-size: 16px;
+                cursor: pointer;
+                transition: all 0.3s;
+            }
+            
+            .login-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+            }
+            
+            .error-message {
+                color: #ff3333;
+                background-color: rgba(255, 0, 0, 0.1);
+                padding: 10px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                text-align: center;
+            }
+            
+            .back-to-home {
+                text-align: center;
+                margin-top: 20px;
+            }
+            
+            .back-to-home a {
+                color: #6e8efb;
+                text-decoration: none;
+            }
+            
+            .back-to-home a:hover {
+                text-decoration: underline;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Background Video -->
+        <div class="bg-video-container">
+            <video id="bgVideo" autoplay muted loop>
+                <source src="../assets/videos/background.mp4" type="video/mp4">
+                <source src="../assets/videos/background.mkv" type="video/x-matroska">
+                Your browser does not support the video tag.
+            </video>
+        </div>
+
+        <div class="login-container">
+            <h1 class="login-title"><i class="fas fa-lock"></i> Admin Login</h1>
+            
+            <?php if (isset($loginError)): ?>
+                <div class="error-message">
+                    <?php echo $loginError; ?>
+                </div>
+            <?php endif; ?>
+            
+            <form class="login-form" method="post">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <button type="submit" class="login-btn" name="login">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </button>
+            </form>
+            
+            <div class="back-to-home">
+                <a href="../index.php"><i class="fas fa-home"></i> Back to Home</a>
+            </div>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
+// If we got here, the user is logged in, show admin panel
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reel - Admin Panel</title>
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .admin-user {
+            display: flex;
+            align-items: center;
+            color: #333;
+        }
+        
+        .admin-user .user-email {
+            margin-right: 15px;
+        }
+        
+        .logout-btn {
+            background-color: #ff4d6d;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .logout-btn:hover {
+            background-color: #ff3356;
+        }
+        
+        .admin-actions {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 30px;
+        }
+        
+        .admin-actions button {
+            padding: 10px 20px;
+            background-color: #6e8efb;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .admin-actions button:hover {
+            background-color: #5678e0;
+        }
+        
+        .admin-actions button.active {
+            background-color: #5678e0;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+        }
+        
+        .section {
+            display: none;
+        }
+        
+        .section.active {
+            display: block;
+        }
+        
+        .video-list {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        
+        .video-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: #333;
+        }
+        
+        .video-item:last-child {
+            border-bottom: none;
+        }
+        
+        .video-item .details {
+            flex: 1;
+        }
+        
+        .video-item .actions button {
+            background: none;
+            border: none;
+            color: #333;
+            font-size: 1.2rem;
+            cursor: pointer;
+            margin-left: 10px;
+            opacity: 0.7;
+        }
+        
+        .video-item .actions button:hover {
+            opacity: 1;
+        }
+        
+        .video-category {
+            font-size: 0.8rem;
+            padding: 3px 8px;
+            border-radius: 10px;
+            display: inline-block;
+            margin-left: 10px;
+            color: white;
+        }
+        
+        .video-category.anime {
+            background-color: #ff4d6d;
+        }
+        
+        .video-category.game {
+            background-color: #4d79ff;
+        }
+    </style>
+</head>
+<body>
+    <!-- Background Video -->
+    <div class="bg-video-container">
+        <video id="bgVideo" autoplay muted loop>
+            <source src="../assets/videos/background.mp4" type="video/mp4">
+            <source src="../assets/videos/background.mkv" type="video/x-matroska">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+
+    <!-- Main Content -->
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1><i class="fas fa-lock"></i> Admin Panel</h1>
+            
+            <div class="admin-user">
+                <span class="user-email"><i class="fas fa-user"></i> <?php echo htmlspecialchars($_SESSION['admin_email']); ?></span>
+                <a href="?logout=1" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</a>
+            </div>
+        </div>
+        
+        <div class="admin-actions">
+            <button id="uploadBtn" class="active"><i class="fas fa-upload"></i> Upload Video</button>
+            <button id="manageBtn"><i class="fas fa-list"></i> Manage Videos</button>
+        </div>
+        
+        <div class="section active" id="uploadSection">
+            <form class="upload-form" id="uploadForm" enctype="multipart/form-data" method="post">
+                <div class="form-group">
+                    <label for="videoTitle">Video Title</label>
+                    <input type="text" id="videoTitle" name="videoTitle" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="videoDescription">Video Description (Optional)</label>
+                    <textarea id="videoDescription" name="videoDescription"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="videoCategory">Category</label>
+                    <select id="videoCategory" name="videoCategory" required>
+                        <option value="">Select Category</option>
+                        <option value="anime">Anime</option>
+                        <option value="game">Game</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="videoFile">Video File</label>
+                    <input type="file" id="videoFile" name="videoFile" accept="video/*" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="thumbnailFile">Thumbnail Image (Optional)</label>
+                    <input type="file" id="thumbnailFile" name="thumbnailFile" accept="image/*">
+                </div>
+                
+                <button type="submit" class="upload-btn">
+                    <i class="fas fa-upload"></i> Upload Video
+                </button>
+            </form>
+
+            <div id="uploadStatus" style="margin-top: 20px; display: none;"></div>
+        </div>
+        
+        <div class="section" id="manageSection">
+            <h2>Manage Videos</h2>
+            <div class="video-list" id="videoList">
+                <!-- Videos will be populated here -->
+                <p class="loading-text"><i class="fas fa-spinner fa-spin"></i> Loading videos...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Elements
+            const uploadBtn = document.getElementById('uploadBtn');
+            const manageBtn = document.getElementById('manageBtn');
+            const uploadSection = document.getElementById('uploadSection');
+            const manageSection = document.getElementById('manageSection');
+            const uploadForm = document.getElementById('uploadForm');
+            const uploadStatus = document.getElementById('uploadStatus');
+            const videoList = document.getElementById('videoList');
+            
+            // Tab switching
+            uploadBtn.addEventListener('click', function() {
+                uploadBtn.classList.add('active');
+                manageBtn.classList.remove('active');
+                uploadSection.classList.add('active');
+                manageSection.classList.remove('active');
+            });
+            
+            manageBtn.addEventListener('click', function() {
+                manageBtn.classList.add('active');
+                uploadBtn.classList.remove('active');
+                manageSection.classList.add('active');
+                uploadSection.classList.remove('active');
+                
+                // Load videos
+                loadVideos();
+            });
+            
+            // Handle form submission
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // Show loading message
+                uploadStatus.style.display = 'block';
+                uploadStatus.innerHTML = '<p><i class="fas fa-spinner fa-spin"></i> Uploading video... Please wait.</p>';
+                
+                // Create form data
+                const formData = new FormData(uploadForm);
+                
+                // Send the data to the server
+                fetch('index.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        uploadStatus.innerHTML = `<p style="color: green;"><i class="fas fa-check-circle"></i> ${data.message}</p>`;
+                        uploadForm.reset();
+                    } else {
+                        uploadStatus.innerHTML = `<p style="color: red;"><i class="fas fa-times-circle"></i> ${data.message}</p>`;
+                    }
+                    
+                    // Hide status after a delay
+                    setTimeout(function() {
+                        uploadStatus.style.display = 'none';
+                    }, 5000);
+                })
+                .catch(error => {
+                    uploadStatus.innerHTML = `<p style="color: red;"><i class="fas fa-times-circle"></i> Error: ${error}</p>`;
+                });
+            });
+            
+            // Function to load videos
+            function loadVideos() {
+                fetch('get_videos.php')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        if (data.videos.length === 0) {
+                            videoList.innerHTML = '<p>No videos found.</p>';
+                        } else {
+                            let html = '';
+                            data.videos.forEach(video => {
+                                html += `
+                                    <div class="video-item" data-id="${video.id}">
+                                        <div class="details">
+                                            <h3>${video.title} 
+                                                <span class="video-category ${video.category}">${video.category}</span>
+                                            </h3>
+                                            <p>${video.description || 'No description'}</p>
+                                            <small>Uploaded on: ${new Date(video.upload_date).toLocaleDateString()}</small>
+                                        </div>
+                                        <div class="actions">
+                                            <button onclick="deleteVideo(${video.id})" title="Delete"><i class="fas fa-trash"></i></button>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                            videoList.innerHTML = html;
+                        }
+                    } else {
+                        videoList.innerHTML = `<p>Error: ${data.message}</p>`;
+                    }
+                })
+                .catch(error => {
+                    videoList.innerHTML = `<p>Error: ${error}</p>`;
+                });
+            }
+            
+            // Add global function for delete
+            window.deleteVideo = function(id) {
+                if (confirm("Are you sure you want to delete this video?")) {
+                    fetch('delete_video.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ id: id })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === "success") {
+                            // Remove the video from the list
+                            document.querySelector(`.video-item[data-id="${id}"]`).remove();
+                            
+                            // Show message if no videos left
+                            if (document.querySelectorAll('.video-item').length === 0) {
+                                videoList.innerHTML = '<p>No videos found.</p>';
+                            }
+                        } else {
+                            alert(`Error: ${data.message}`);
+                        }
+                    })
+                    .catch(error => {
+                        alert(`Error: ${error}`);
+                    });
+                }            };
+        });
+    </script>
+</body>
+</html>
+<?php
+}
+?>
